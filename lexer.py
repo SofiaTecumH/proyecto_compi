@@ -1,17 +1,17 @@
 import re
 
 # Palabras clave válidas
-KEYWORDS = {'CREATE', 'TABLE', 'INSERT', 'INTO', 'SELECT', 'FROM', 'WHERE'}
+KEYWORDS = {'CREATE', 'TABLE', 'INSERT', 'INTO', 'SELECT', 'FROM', 'WHERE', 'VALUES', 'UPDATE', 'SET', 'DELETE', 'PRIMARY'}
 
 # Token types
 TOKEN_TYPES = {
-    'KEYWORD': r'\b(?:CREATE|TABLE|INSERT|INTO|SELECT|FROM|WHERE)\b',
+    'KEYWORD': r'\b(?:CREATE|TABLE|INSERT|INTO|SELECT|FROM|WHERE|VALUES|UPDATE|SET|DELETE|PRIMARY)\b',
     'IDENTIFIER': r'[a-zA-Z_][a-zA-Z0-9_]*',
     'STRING': r'\'[^\']*\'',
     'NUMBER': r'\d+(\.\d+)?',
     'DATE': r'\d{4}-\d{2}-\d{2}',
     'OPERATOR': r'!=|<=|>=|=|<|>',
-    'SYMBOL': r'[(),;]',
+    'SYMBOL': r'[\(\),;\*]',  # ✅ Aquí se incluye el *
     'WHITESPACE': r'\s+',
 }
 
@@ -51,5 +51,4 @@ def tokenize(line, line_num):
             pos += 1  # saltar para seguir procesando
 
     return tokens
-
 

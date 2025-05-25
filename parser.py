@@ -47,16 +47,20 @@ class Parser:
             return None
 
         if token[0] == 'KEYWORD':
-            if token[1].upper() == 'CREATE':
+            kw = token[1].upper()
+            if kw == 'CREATE':
                 return self.parse_create()
-            elif token[1].upper() == 'INSERT':
+            elif kw == 'INSERT':
                 return self.parse_insert()
-            elif token[1].upper() == 'SELECT':
+            elif kw == 'SELECT':
                 return self.parse_select()
+            elif kw == 'UPDATE':
+                return self.parse_update()
+            elif kw == 'DELETE':
+                return self.parse_delete()
         return None
 
     def parse_create(self):
-        # CREATE TABLE <table_name> ( <column_name> <type>, ... );
         self.expect('KEYWORD', 'CREATE')
         self.expect('KEYWORD', 'TABLE')
         table_name = self.expect('IDENTIFIER')[1]
@@ -68,19 +72,31 @@ class Parser:
             col_name = self.expect('IDENTIFIER')[1]
             col_type = self.expect('IDENTIFIER')[1].upper()
 
-            # Validar tipos SQL aceptados
-            if col_type not in ('INT', 'NUMBER', 'STRING', 'DATE'):
-                raise SyntaxError(f"Tipo de dato inválido '{col_type}' en tabla '{table_name}'")
+            token = self.current_token()
+            if token and token[0] == 'SYMBOL' and token[1] == '(':
+                self.pos += 1
+                param = self.expect('NUMBER')[1]
+                self.expect('SYMBOL', ')')
+                col_type += f"({param})"
 
-            columns.append((col_name, col_type))
+            constraints = []
+            while True:
+                token = self.current_token()
+                if token and token[0] == 'KEYWORD' and token[1].upper() in ('PRIMARY', 'KEY', 'NOT', 'NULL', 'UNIQUE'):
+                    constraints.append(token[1].upper())
+                    self.pos += 1
+                else:
+                    break
 
-            # Verificar si hay más columnas o si se debe cerrar el paréntesis
+            columns.append((col_name, col_type, constraints))
+
             token = self.current_token()
             if token and token[0] == 'SYMBOL':
                 if token[1] == ',':
-                    self.pos += 1  # Consumir ',' para seguir con otra columna
+                    self.pos += 1
+                    continue
                 elif token[1] == ')':
-                    break  # Fin de la lista de columnas
+                    break
                 else:
                     raise SyntaxError(f"Token inesperado '{token[1]}' en definición de columnas.")
             else:
@@ -92,10 +108,27 @@ class Parser:
         return ('CREATE_TABLE', table_name, columns)
 
     def parse_insert(self):
-        # INSERT INTO <table_name> VALUES ( val1, val2, ... );
         self.expect('KEYWORD', 'INSERT')
         self.expect('KEYWORD', 'INTO')
         table_name = self.expect('IDENTIFIER')[1]
+
+        token = self.current_token()
+        columns = None
+        if token and token[0] == 'SYMBOL' and token[1] == '(':
+            self.pos += 1
+            columns = []
+            while True:
+                col = self.expect('IDENTIFIER')[1]
+                columns.append(col)
+                token = self.current_token()
+                if token and token[0] == 'SYMBOL' and token[1] == ',':
+                    self.pos += 1
+                    continue
+                elif token and token[0] == 'SYMBOL' and token[1] == ')':
+                    self.pos += 1
+                    break
+                else:
+                    raise SyntaxError("Se esperaba ',' o ')' en lista de columnas del INSERT")
 
         self.expect('KEYWORD', 'VALUES')
         self.expect('SYMBOL', '(')
@@ -103,7 +136,7 @@ class Parser:
         values = []
         while True:
             token = self.current_token()
-            if token[0] in ('NUMBER', 'STRING', 'DATE'):
+            if token and token[0] in ('NUMBER', 'STRING', 'DATE'):
                 values.append(token[1])
                 self.pos += 1
             else:
@@ -111,23 +144,24 @@ class Parser:
 
             token = self.current_token()
             if token and token[0] == 'SYMBOL' and token[1] == ',':
-                self.pos += 1  # consumir ','
-            else:
+                self.pos += 1
+                continue
+            elif token and token[0] == 'SYMBOL' and token[1] == ')':
                 break
+            else:
+                raise SyntaxError("Se esperaba ',' o ')' en lista de valores del INSERT")
 
         self.expect('SYMBOL', ')')
         self.expect('SYMBOL', ';')
 
-        return ('INSERT', table_name, values)
+        return ('INSERT', table_name, columns, values)
 
     def parse_select(self):
-        # SELECT <columns> FROM <table> [WHERE <condition>] ;
         self.expect('KEYWORD', 'SELECT')
 
-        # para simplificar, aceptar * o lista simple de columnas
-        token = self.current_token()
         columns = []
-        if token[0] == 'SYMBOL' and token[1] == '*':
+        token = self.current_token()
+        if token and token[0] == 'SYMBOL' and token[1] == '*':
             columns = ['*']
             self.pos += 1
         else:
@@ -137,31 +171,79 @@ class Parser:
                 token = self.current_token()
                 if token and token[0] == 'SYMBOL' and token[1] == ',':
                     self.pos += 1
+                    continue
                 else:
                     break
 
         self.expect('KEYWORD', 'FROM')
         table_name = self.expect('IDENTIFIER')[1]
 
-        # WHERE opcional
         condition = None
         token = self.current_token()
-        if token and token[0] == 'KEYWORD' and token[1] == 'WHERE':
+        if token and token[0] == 'KEYWORD' and token[1].upper() == 'WHERE':
             self.pos += 1
             condition = self.parse_condition()
 
         self.expect('SYMBOL', ';')
+
         return ('SELECT', columns, table_name, condition)
 
     def parse_condition(self):
-        # condición simple: <identificador> <operador> <valor>
         left = self.expect('IDENTIFIER')[1]
         op = self.expect('OPERATOR')[1]
         token = self.current_token()
-        if token[0] in ('NUMBER', 'STRING', 'DATE'):
+        if token and token[0] in ('NUMBER', 'STRING', 'DATE'):
             right = token[1]
             self.pos += 1
         else:
             raise SyntaxError(f"Valor inválido en condición en línea {token[2]} posición {token[3]}")
-
         return (left, op, right)
+
+    def parse_update(self):
+        self.expect('KEYWORD', 'UPDATE')
+        table_name = self.expect('IDENTIFIER')[1]
+        self.expect('KEYWORD', 'SET')
+
+        assignments = {}
+        while True:
+            col_name = self.expect('IDENTIFIER')[1]
+            self.expect('OPERATOR', '=')
+            token = self.current_token()
+            if token and token[0] in ('NUMBER', 'STRING', 'DATE'):
+                val = token[1]
+                self.pos += 1
+            else:
+                raise SyntaxError(f"Valor inválido en UPDATE en línea {token[2]} posición {token[3]}")
+            assignments[col_name] = val
+
+            token = self.current_token()
+            if token and token[0] == 'SYMBOL' and token[1] == ',':
+                self.pos += 1
+                continue
+            else:
+                break
+
+        condition = None
+        token = self.current_token()
+        if token and token[0] == 'KEYWORD' and token[1].upper() == 'WHERE':
+            self.pos += 1
+            condition = self.parse_condition()
+
+        self.expect('SYMBOL', ';')
+
+        return ('UPDATE', table_name, assignments, condition)
+
+    def parse_delete(self):
+        self.expect('KEYWORD', 'DELETE')
+        self.expect('KEYWORD', 'FROM')
+        table_name = self.expect('IDENTIFIER')[1]
+
+        condition = None
+        token = self.current_token()
+        if token and token[0] == 'KEYWORD' and token[1].upper() == 'WHERE':
+            self.pos += 1
+            condition = self.parse_condition()
+
+        self.expect('SYMBOL', ';')
+
+        return ('DELETE', table_name, condition)

@@ -1,5 +1,6 @@
 from datetime import datetime
 import re
+from JinjaPy import HtmlGenerator
 
 class Table:
     def __init__(self, name, columns):
@@ -94,9 +95,13 @@ class Table:
 class Executor:
     def __init__(self):
         self.tables = {}
+        self.html_generator = HtmlGenerator()
 
     def execute(self, instrucciones):
         resultados = []
+        mensajes = []
+        errores = []
+
         for instr in instrucciones:
             tipo = instr[0]
 
@@ -105,6 +110,7 @@ class Executor:
                 if table_name in self.tables:
                     raise ValueError(f"Tabla '{table_name}' ya existe")
                 self.tables[table_name] = Table(table_name, columns)
+                mensajes.append(f"Tabla '{table_name}' creada exitosamente.")
 
             elif tipo == 'INSERT':
                 # Ahora desempacamos columnas y valores
@@ -127,6 +133,7 @@ class Executor:
                         if row[i] is None:
                             row[i] = None  # O puedes definir otro valor por defecto
                     self.tables[table_name].insert(row)
+                mensajes.append(f"Datos insertados en '{table_name}' exitosamente.")
 
             elif tipo == 'SELECT':
                 _, columns, table_name, condition = instr
@@ -137,6 +144,7 @@ class Executor:
                 condition_func = self.build_condition_func(table_name, condition)
                 cols, rows = self.tables[table_name].select(columns, condition_func)
                 resultados.append((cols, rows))
+                mensajes.append(f"Consulta SELECT ejecutada en '{table_name}'.")
 
             elif tipo == 'UPDATE':
                 _, table_name, updates, condition = instr
@@ -144,6 +152,7 @@ class Executor:
                     raise ValueError(f"Tabla '{table_name}' no existe")
                 condition_func = self.build_condition_func(table_name, condition)
                 self.tables[table_name].update(updates, condition_func)
+                mensajes.append(f"Tabla '{table_name}' actualizada correctamente.")
 
             elif tipo == 'DELETE':
                 _, table_name, condition = instr
@@ -151,10 +160,15 @@ class Executor:
                     raise ValueError(f"Tabla '{table_name}' no existe")
                 condition_func = self.build_condition_func(table_name, condition)
                 self.tables[table_name].delete(condition_func)
+                mensajes.append(f"Registros eliminados en '{table_name}'.")
 
             else:
                 raise ValueError(f"Instrucción desconocida '{tipo}'")
-        return resultados
+
+        if not errores and resultados:
+            self.html_generator.generate_html(resultados, mensajes)
+
+        return resultados, mensajes
 
     def build_condition_func(self, table_name, condition):
         """
